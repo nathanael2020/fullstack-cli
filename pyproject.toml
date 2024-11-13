@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fullstack-cli"
+version = "0.1.0"
+authors = [
+    {name = "Nathanael Miksis"},
+]
+description = "A CLI tool to bootstrap full-stack web applications"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "subprocess.run"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/nathanael2020/fullstack-cli"
+"Bug Tracker" = "https://github.com/nathanael2020/fullstack-cli/issues"
+
+[project.scripts]
+fullstack = "fullstack.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
