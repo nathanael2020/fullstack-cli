@@ -3,6 +3,7 @@ import sys
 import json
 import shutil
 import subprocess
+from sqlalchemy import Column, Integer, String
 from pathlib import Path
 from typing import Dict, Any
 from dotenv import load_dotenv
@@ -44,7 +45,8 @@ class FullStackBootstrap:
             'db_user': os.getenv("DB_USER", f"{default_name.replace('-', '_')}_user"),
             'db_password': os.getenv("DB_PASSWORD", "change_me_in_production"),
             'db_host': os.getenv("DB_HOST", "localhost"),
-            'db_port': os.getenv("DB_PORT", "5432")
+            'db_port': os.getenv("DB_PORT", "5432"),
+            'DATABASE_URL': os.getenv("DATABASE_URL")
         }
         
         # Set up paths
@@ -95,7 +97,10 @@ class FullStackBootstrap:
             self.create_directory_structure()
             self.create_backend_files()
             self.create_frontend_files()
-            self.reset_database()
+            self.setup_database()
+            # self.create_demo_table_model()   # Add model definition for demo_table
+            self.setup_database_migrations() # Initialize Alembic and run migration
+            self.populate_demo_data()        # Populate demo_table with demo data
             self.create_start_script()
             
             print("\n✓ Setup completed successfully!")
@@ -378,7 +383,10 @@ if __name__ == "__main__":
             self.backend_dir / 'app' / 'api',
             self.backend_dir / 'app' / 'models',
             self.frontend_dir / 'src' / 'app',
+            self.frontend_dir / 'src' / 'app' / 'demo_tables',
+            self.frontend_dir / 'src' / 'app' / 'demo_tables' / '[id]',
             self.frontend_dir / 'src' / 'components',
+            self.frontend_dir / 'src' / 'pages',
             self.frontend_dir / 'src' / 'styles',
         ]
 
@@ -386,24 +394,35 @@ if __name__ == "__main__":
             directory.mkdir(parents=True, exist_ok=True)
 
     def create_backend_files(self):
-        """Create backend files"""
-        # Requirements file
+        """Create backend files with main FastAPI setup and essential modules"""
+
+        # Create the `requirements.txt` file with updated dependencies
         requirements = [
+            'psycopg2-binary==2.9.10',
+            'alembic==1.12.1',
+            'flake8==6.1.0',
+            'black==24.3.0',
             'fastapi==0.104.1',
             'uvicorn[standard]==0.24.0',
             'gunicorn==21.0.0',
             'sqlalchemy==2.0.23',
             'python-dotenv==1.0.0',
-            'pydantic==2.5.1',
+            'pydantic==2.5.1'
         ]
 
         with open(self.backend_dir / 'requirements.txt', 'w') as f:
             f.write('\n'.join(requirements))
 
-        # Create main FastAPI application file
+    # Main FastAPI application file
         main_app = """
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from app.database import SessionLocal, engine
+from app.models.demo_table import DemoTable
+from app.crud import create_demo_table, get_demo_table, get_demo_table_by_id
+from app.schemas import DemoTable as DemoTableSchema
+from app import models, schemas
 
 app = FastAPI(title="{app_name}")
 
@@ -416,13 +435,118 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/health")
-async def health_check():
-    return {{"status": "healthy"}}
+# Dependency to get DB session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+        
+# DemoTable routes
+@app.get("/demo-tables/", response_model=list[DemoTableSchema])
+@app.get("/demo_tables/", response_model=list[DemoTableSchema])
+async def read_demo_tables(db: Session = Depends(get_db)):
+    return db.query(models.DemoTable).all()
+
+@app.get("/demo-tables/{{demo_table_id}}", response_model=DemoTableSchema)
+@app.get("/demo_tables/{{demo_table_id}}", response_model=DemoTableSchema)
+async def read_demo_table(demo_table_id: int, db: Session = Depends(get_db)):
+    demo_table = db.query(models.DemoTable).filter(models.DemoTable.id == demo_table_id).first()
+    if demo_table is None:
+        raise HTTPException(status_code=404, detail="DemoTable not found")
+    return demo_table
 """.format(**self.config)
 
         with open(self.backend_dir / 'app' / 'main.py', 'w') as f:
             f.write(main_app.strip())
+
+        # `database.py` for DB setup
+        database_file = """
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+"""
+
+        with open(self.backend_dir / 'app' / 'database.py', 'w') as f:
+            f.write(database_file.strip())
+
+        # `models.py` for defining the PDF model
+        demo_table_model = """
+from sqlalchemy import Column, Integer, String
+from app.database import Base
+
+class DemoTable(Base):
+    __tablename__ = "demo_table"
+    id = Column(Integer, primary_key=True, index=True)
+    demo_field = Column(String, nullable=False)
+"""
+
+        with open(self.backend_dir / 'app' / 'models' / 'demo_table.py', 'w') as f:
+            f.write(demo_table_model.strip())
+
+        # `__init__.py` for models module
+        init_file = """
+from app.database import Base
+from .demo_table import DemoTable
+"""
+        with open(self.backend_dir / 'app' / 'models' / '__init__.py', 'w') as f:
+            f.write(init_file.strip())
+
+        # `crud.py` for database operations
+        crud_file = """
+from sqlalchemy.orm import Session
+from . import models, schemas
+from app.models.demo_table import DemoTable
+
+def create_demo_table(db: Session, demo_table: schemas.DemoTableCreate):
+    db_demo_table = DemoTable(demo_field=demo_table.demo_field)
+    db.add(db_demo_table)
+    db.commit()
+    db.refresh(db_demo_table)
+    return db_demo_table
+
+def get_demo_table(db: Session):
+    return db.query(DemoTable).all()
+
+def get_demo_table_by_id(db: Session, demo_table_id: int):
+    return db.query(DemoTable).filter(DemoTable.id == demo_table_id).first()
+"""
+
+        with open(self.backend_dir / 'app' / 'crud.py', 'w') as f:
+            f.write(crud_file.strip())
+
+        # `schemas.py` for Pydantic models
+        schemas_file = """
+from pydantic import BaseModel
+
+class DemoTableBase(BaseModel):
+    demo_field: str
+
+class DemoTableCreate(DemoTableBase):
+    pass
+
+class DemoTable(DemoTableBase):
+    id: int
+
+    class Config:
+        orm_mode = True
+"""
+
+        with open(self.backend_dir / 'app' / 'schemas.py', 'w') as f:
+            f.write(schemas_file.strip())
+
 
     def create_frontend_files(self):
         """Create frontend configuration and files"""
@@ -434,7 +558,7 @@ async def health_check():
                 "dev": f"next dev -p {self.config['frontend_port']}",
                 "build": "next build",
                 "start": f"next start -p {self.config['frontend_port']}",
-                "lint": "next lint"
+                "lint": "eslint . --ext .ts,.tsx"
             },
             "dependencies": {
                 "next": "14.0.3",
@@ -463,7 +587,7 @@ async def health_check():
         self.create_nextjs_files()
 
 
-    def reset_database(self):
+    def setup_database(self):
         """Drop and recreate PostgreSQL user and database with specified privileges"""
         try:
             # Drop the database if it exists
@@ -501,9 +625,92 @@ async def health_check():
         except subprocess.CalledProcessError as e:
             print("Error setting up database or user:", e)
 
+
+    def setup_database_migrations(self):
+        """Set up Alembic for database migrations and create initial migration with demo table."""
+        # Step 1: Initialize Alembic
+        subprocess.run(["alembic", "init", "alembic"], cwd=self.backend_dir)
+
+        # Step 2: Update `alembic.ini` with the database URL
+        alembic_ini_path = self.backend_dir / "alembic.ini"
+        with open(alembic_ini_path, "r") as file:
+            alembic_ini = file.read()
+
+        updated_alembic_ini = alembic_ini.replace(
+            "sqlalchemy.url = driver://user:pass@localhost/dbname",
+            f"sqlalchemy.url = postgresql://{self.config['db_user']}:{self.config['db_password']}@{self.config['db_host']}:{self.config['db_port']}/{self.config['db_name']}"
+        )
+
+        with open(alembic_ini_path, "w") as file:
+            file.write(updated_alembic_ini)
+
+
+        # Step 3: Update `env.py` to reference the metadata from your models
+        env_path = self.backend_dir / "alembic" / "env.py"
+        with open(env_path, "r") as file:
+            env_content = file.read()
+
+        # Inject the import statement and metadata setup
+        updated_env_content = env_content.replace(
+            "target_metadata = None",
+            "from app.models import Base\n"
+            "target_metadata = Base.metadata"
+        )
+
+        with open(env_path, "w") as file:
+            file.write(updated_env_content)
+
+
+        # Step 3: Generate the initial migration
+        subprocess.run(["alembic", "revision", "--autogenerate", "-m", "create demo_table"], cwd=self.backend_dir)
+
+        # Step 4: Apply the migration to create the `demo_table`
+        subprocess.run(["alembic", "upgrade", "head"], cwd=self.backend_dir)
+
+    def create_demo_table_model(self):
+        """Add a DemoTable model to `models.py`."""
+        demo_table_model = """
+from sqlalchemy import Column, Integer, String
+from app.database import Base
+
+class DemoTable(Base):
+    __tablename__ = "demo_table"
+    id = Column(Integer, primary_key=True, index=True)
+    demo_field = Column(String, nullable=False)
+"""
+        models_path = self.backend_dir / 'app' / 'models' / 'demo_table.py'
+        with open(models_path, 'a') as f:
+            f.write(demo_table_model)
+            
+    def populate_demo_data(self):
+        """Populate demo_table with initial data."""
+        demo_data_script = """
+import sys
+from pathlib import Path
+
+# Add the root project directory to sys.path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from app.database import SessionLocal
+from app.models.demo_table import DemoTable
+
+db = SessionLocal()
+demo_record = DemoTable(demo_field="You're up and running!")
+db.add(demo_record)
+db.commit()
+db.close()
+"""
+        populate_script_path = self.backend_dir / 'app' / 'populate_demo_data.py'
+        with open(populate_script_path, 'w') as f:
+            f.write(demo_data_script)
+
+        # Run the script to insert the record
+        subprocess.run(["python", populate_script_path])
+
     def create_nextjs_files(self):
-        """Create basic Next.js files"""
-        # Create tsconfig.json
+        """Create basic Next.js files with additional configurations and Tailwind setup"""
+
+        # Create tsconfig.json with updated compiler options
         tsconfig = {
             "compilerOptions": {
                 "target": "es5",
@@ -530,20 +737,260 @@ async def health_check():
         with open(self.frontend_dir / 'tsconfig.json', 'w') as f:
             json.dump(tsconfig, f, indent=2)
 
-        # Create basic page component
+
+        # Create next.config.js for Next.js custom configurations
+        next_config = """
+module.exports = {
+    async redirects() {
+        return [
+            {
+                source: '/demo-tables/',
+                destination: '/demo_tables/',
+                permanent: true,
+            },
+            {
+                source: '/demo-tables/:id',
+                destination: '/demo_tables/:id',
+                permanent: true,
+            },
+        ];
+    },
+    webpack: (config) => {
+        // Optional: Disable Webpack caching for debugging purposes
+        config.cache = false;
+        return config;
+    },
+};
+""".strip()
+
+        with open(self.frontend_dir / 'next.config.js', 'w') as f:
+            f.write(next_config)
+
+        # Set up Tailwind CSS configuration
+        tailwind_config = """
+module.exports = {
+    content: ["./src/**/*.{js,ts,jsx,tsx}"],
+    theme: {
+        extend: {}
+    },
+    "plugins": []
+}
+""".strip()
+
+        with open(self.frontend_dir / 'tailwind.config.js', 'w') as f:
+            f.write(tailwind_config)
+
+        # Corrected `postcss.config.js` content as JavaScript, not JSON
+        postcss_config = """
+module.exports = {
+    plugins: {
+        tailwindcss: {},
+        autoprefixer: {},
+    },
+};
+""".strip()
+
+        with open(self.frontend_dir / 'postcss.config.js', 'w') as f:
+            f.write(postcss_config)
+
+        # Set up ESLint configuration
+        eslint_config = {
+            "extends": ["next", "next/core-web-vitals", "prettier"],
+            "rules": {
+                "semi": ["error", "always"],
+                "quotes": ["error", "single"]
+            }
+        }
+
+        with open(self.frontend_dir / '.eslintrc.json', 'w') as f:
+            json.dump(eslint_config, f, indent=2)
+
+        # Set up Prettier configuration
+        prettier_config = {
+            "semi": True,
+            "singleQuote": True,
+            "tabWidth": 2,
+            "trailingComma": "all"
+        }
+
+        with open(self.frontend_dir / '.prettierrc', 'w') as f:
+            json.dump(prettier_config, f, indent=2)
+
+        # Basic Tailwind CSS styles
+        tailwind_styles = """
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+""".strip()
+
+        styles_dir = self.frontend_dir / 'src' / 'styles'
+        styles_dir.mkdir(parents=True, exist_ok=True)
+        
+        with open(styles_dir / 'globals.css', 'w') as f:
+            f.write(tailwind_styles)
+
+        # Create a basic layout component
+        layout_content = f"""
+    import React from 'react';
+    import Link from 'next/link';
+    import '../styles/globals.css';
+
+    export const metadata = {{
+        title: '{self.config['app_name']}',
+        description: 'Generated by Next.js',
+    }}
+
+    export default function RootLayout({{ children }}) {{
+        return (
+            <html lang="en">
+                <body>
+                    <header>
+                        <nav className="p-4 bg-gray-100">
+                            <ul className="flex space-x-4">
+                                <li><Link href="/">Home</Link></li>
+                                <li><Link href="/about">About</Link></li>
+                            </ul>
+                        </nav>
+                    </header>
+                    <main>{{children}}</main>
+                </body>
+            </html>
+        )
+    }}
+        """.strip()
+
+        with open(self.frontend_dir / 'src' / 'app' / 'layout.tsx', 'w') as f:
+            f.write(layout_content)
+
+        # Create the main page component
         page_content = f"""
+import Link from 'next/link';
 export default function Home() {{
     return (
-        <main className="flex min-h-screen flex-col items-center justify-between p-24">
+        <main className="flex min-h-screen flex-col items-center justify-center p-8 bg-blue-50">
             <h1 className="text-4xl font-bold">{self.config['app_name']}</h1>
-            <p>Your application is ready!</p>
+            <p className="text-lg mt-4">Your application is ready!</p>
+            <p className="text-lg mt-4">You can view the <Link href="/demo-tables">Demo Tables</Link> page.</p>
         </main>
     )
 }}
         """.strip()
-        
+
         with open(self.frontend_dir / 'src' / 'app' / 'page.tsx', 'w') as f:
             f.write(page_content)
+
+        # Content for demo_tables/page.tsx
+        demo_tables_page_content = f"""
+"use client";
+import {{ useEffect, useState }} from 'react';
+import Link from 'next/link';
+import axios from 'axios';
+
+type DemoTable = {{
+  id: number;
+  demo_field: string;
+}};
+
+export default function DemoTablesPage() {{
+  const [demoTables, setDemoTables] = useState<DemoTable[]>([]);
+
+  useEffect(() => {{
+    const fetchDemoTables = async () => {{
+      try {{
+        const response = await axios.get<DemoTable[]>('http://localhost:{self.config['api_port']}/demo-tables');
+        setDemoTables(response.data);
+      }} catch (error) {{
+        console.error("Error fetching demo tables:", error);
+      }}
+    }};
+    fetchDemoTables();
+  }}, []);
+
+  return (
+    <main className="p-8">
+      <h1 className="text-2xl font-bold mb-4">Demo Tables</h1>
+      <ul>
+        {{demoTables.map((demoTable) => (
+          <li key={{demoTable.id}}>
+            <Link href={{`/demo-tables/${{demoTable.id}}`}}>
+              {{demoTable.demo_field}}
+            </Link>
+          </li>
+        ))}}
+      </ul>
+    </main>
+  );
+}}
+""".strip()
+
+        with open(self.frontend_dir / 'src' / 'app' / 'demo_tables' / 'page.tsx', 'w') as f:
+            f.write(demo_tables_page_content)
+
+
+        # Content for demo_tables/[id]/page.tsx
+        demo_table_detail_page_content = f"""
+"use client";
+import {{ useParams }} from 'next/navigation';
+import {{ useEffect, useState }} from 'react';
+import axios from 'axios';
+
+type DemoTable = {{
+  id: number;
+  demo_field: string;
+}};
+
+export default function DemoTableDetailPage() {{
+    const params = useParams();
+    if (!params.id) {{
+        return <p>Loading...</p>;
+    }}
+    const id = params.id as string;
+    const [demoTable, setDemoTable] = useState<DemoTable | null>(null);
+
+  useEffect(() => {{
+    if (id) {{
+      const fetchDemoTable = async () => {{
+        try {{
+          const response = await axios.get<DemoTable>(`http://localhost:{self.config['api_port']}/demo-tables/${{id}}`);
+          setDemoTable(response.data);
+        }} catch (error) {{
+          console.error("Error fetching demo table:", error);
+        }}
+      }};
+      fetchDemoTable();
+    }}
+  }}, [id]);
+
+  if (!demoTable) return <p>Loading...</p>;
+
+  return (
+    <main className="p-8">
+      <h1 className="text-2xl font-bold mb-4">Demo Table Detail</h1>
+      <p>ID: {{demoTable.id}}</p>
+      <p>Field: {{demoTable.demo_field}}</p>
+    </main>
+  );
+}}
+""".strip()
+
+        with open(self.frontend_dir / 'src' / 'app' / 'demo_tables' / '[id]' / 'page.tsx', 'w') as f:
+            f.write(demo_table_detail_page_content)
+
+        # Create an About page as an example
+        about_page_content = """
+    export default function About() {
+        return (
+            <main className="flex min-h-screen flex-col items-center justify-center p-8 bg-green-50">
+                <h1 className="text-4xl font-bold">About Us</h1>
+                <p className="text-lg mt-4">This is an example of an About page.</p>
+            </main>
+        )
+    }
+        """.strip()
+
+        (self.frontend_dir / 'src' / 'app' / 'about').mkdir(parents=True, exist_ok=True)
+        with open(self.frontend_dir / 'src' / 'app' / 'about' / 'page.tsx', 'w') as f:
+            f.write(about_page_content)
 
     def setup_virtual_environment(self):
         """Set up Python virtual environment and install requirements"""
@@ -553,43 +1000,6 @@ export default function Home() {{
         venv_pip = str(self.project_dir / '.venv' / 'bin' / 'pip')
         subprocess.run([venv_pip, 'install', '-r', str(self.backend_dir / 'requirements.txt')])
 
-    # def setup_project(self):
-    #     """Main setup function"""
-    #     print(f"Setting up project: {self.config['app_name']}")
-        
-    #     # Create project structure
-    #     self.create_directory_structure()
-    #     print("✓ Created directory structure")
-
-    #     # Create backend files
-    #     self.create_backend_files()
-    #     print("✓ Created backend files")
-
-    #     # Set up virtual environment
-    #     self.setup_virtual_environment()
-    #     print("✓ Set up Python virtual environment")
-
-    #     # Create frontend files
-    #     self.create_frontend_files()
-    #     print("✓ Created frontend files")
-
-    #     # Reset database
-    #     self.reset_database()
-    #     print("✓ Database setup complete")
-
-    #     print("\nProject setup complete!")
-    #     print("\nTo start the project:")
-    #     print(f"1. cd {self.config['app_name']}")
-    #     print("2. To start the backend:")
-    #     print(f"   cd backend")
-    #     print(f"   source .venv/bin/activate")
-    #     print(f"   uvicorn app.main:app --reload --port {self.config['api_port']}")
-    #     print("3. In a new terminal, to start the frontend:")
-    #     print(f"   cd frontend")
-    #     print(f"   npm install")
-    #     print(f"   npm run dev")
-    #     print(f"\nFrontend will be available at: http://localhost:{self.config['frontend_port']}")
-    #     print(f"API will be available at: http://localhost:{self.config['api_port']}")
 
 
 if __name__ == "__main__":

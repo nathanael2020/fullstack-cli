@@ -8,6 +8,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from .bootstrap import FullStackBootstrap
 
+import subprocess
+import sys
+import os
+from pathlib import Path
+
 def check_venv():
     """Check if running in a virtual environment and handle accordingly"""
     if not os.environ.get('VIRTUAL_ENV'):
@@ -32,11 +37,13 @@ def check_venv():
         if choice == 'y':
             print("\nCreating virtual environment...")
             try:
+                # Create the virtual environment
                 subprocess.run([sys.executable, '-m', 'venv', '.venv'], check=True)
-                venv_pip = str(Path('.venv/bin/pip'))
                 
+                venv_pip = str(venv_dir / 'bin' / 'pip')
                 print("Installing required packages...")
-# Instead of installing the current directory, install specific requirements
+                
+                # Upgrade pip and install packages
                 subprocess.run([venv_pip, 'install', '-U', 'pip'], check=True)
                 subprocess.run([venv_pip, 'install', 
                              'fastapi==0.104.1',
@@ -44,19 +51,37 @@ def check_venv():
                              'gunicorn==21.0.0',
                              'sqlalchemy==2.0.23',
                              'python-dotenv==1.0.0',
+                             'psycopg2-binary==2.9.10',
                              'pydantic==2.5.1'], check=True)
                 
                 print("\n✓ Virtual environment created and packages installed")
-                print("\nPlease activate the virtual environment and run fullstack again:")
-                print("    source .venv/bin/activate")
-                print("    fullstack")
-                sys.exit(0)
+                
+                # # Relaunch the script within the virtual environment
+                # python_in_venv = str(venv_dir / 'bin' / 'python')
+                # print("Re-launching script within the virtual environment...")
+                # subprocess.run([python_in_venv] + sys.argv)
+
+                # # Exit to prevent further execution in the outer environment
+                # sys.exit(0)
+
+
+                # Manually activate the virtual environment in this script's context
+                venv_lib_path = venv_dir / 'lib' / f'python{sys.version_info.major}.{sys.version_info.minor}' / 'site-packages'
+                sys.path.insert(0, str(venv_lib_path))
+                
+                # Set VIRTUAL_ENV environment variable and adjust PATH
+                os.environ['VIRTUAL_ENV'] = str(venv_dir)
+                os.environ['PATH'] = f"{venv_dir / 'bin'}:{os.environ['PATH']}"
+                
+                print("Virtual environment activated in the current process.")
+                
             except subprocess.CalledProcessError as e:
                 print(f"Error creating virtual environment: {e}")
                 sys.exit(1)
         else:
             print("\nPlease activate your preferred virtual environment and run fullstack again")
             sys.exit(0)
+
 
 # src/fullstack/cli.py (the relevant part)
 def load_env_or_defaults():
@@ -101,7 +126,8 @@ def load_env_or_defaults():
         'DB_USER': os.getenv('DB_USER'),
         'DB_PASSWORD': os.getenv('DB_PASSWORD', 'change_me_in_production'),
         'DB_HOST': os.getenv('DB_HOST', 'localhost'),
-        'DB_PORT': os.getenv('DB_PORT', '5432')
+        'DB_PORT': os.getenv('DB_PORT', '5432'),
+        'DATABASE_URL': 'postgresql://' + os.getenv('DB_USER') + ':' + os.getenv('DB_PASSWORD') + '@' + os.getenv('DB_HOST') + ':' + os.getenv('DB_PORT') + '/' + os.getenv('DB_NAME')
     }
     
     # If DB_NAME or DB_USER not set, derive from APP_NAME
@@ -126,7 +152,8 @@ def create_env_file(env_vars=None):
             'DB_USER': "",  # Will be derived from APP_NAME if empty
             'DB_PASSWORD': input("Database password (default: change_me_in_production): ") or "change_me_in_production",
             'DB_HOST': input("Database host (default: localhost): ") or "localhost",
-            'DB_PORT': input("Database port (default: 5432): ") or "5432"
+            'DB_PORT': input("Database port (default: 5432): ") or "5432",
+            'DATABASE_URL': ""  # Will be derived from other vars if empty
         }
         
         # Derive DB_NAME and DB_USER from APP_NAME if not provided
@@ -134,6 +161,8 @@ def create_env_file(env_vars=None):
             env_vars['DB_NAME'] = f"{env_vars['APP_NAME'].replace('-', '_')}_db"
         if not env_vars['DB_USER']:
             env_vars['DB_USER'] = f"{env_vars['APP_NAME'].replace('-', '_')}_user"
+        if not env_vars['DATABASE_URL']:
+            env_vars['DATABASE_URL'] = 'postgresql://' + env_vars['DB_USER'] + ':' + env_vars['DB_PASSWORD'] + '@' + env_vars['DB_HOST'] + ':' + env_vars['DB_PORT'] + '/' + env_vars['DB_NAME']
 
     # Create .env file
     env_content = "\n".join(f"{k}={v}" for k, v in env_vars.items())
