@@ -23,48 +23,69 @@ class FullStackBootstrap:
         print(f"APP_NAME: {os.getenv('APP_NAME')}")
         print(f"API_PORT: {os.getenv('API_PORT')}")
         print(f"FRONTEND_PORT: {os.getenv('FRONTEND_PORT')}")
+        print(f"DATABASE: {os.getenv('DATABASE')}")
+        print(f"DB_NAME: {os.getenv('DB_NAME')}")
+        print(f"DB_USER: {os.getenv('DB_USER')}")
+        print(f"DB_PASSWORD: {os.getenv('DB_PASSWORD')}")
+        print(f"DB_HOST: {os.getenv('DB_HOST')}")
+        print(f"DB_PORT: {os.getenv('DB_PORT')}")
 
         # Rest of the init...
         
         # Validate required env vars
-        # required_vars = ['APP_NAME', 'API_PORT', 'FRONTEND_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD']
-        # missing = [var for var in required_vars if not os.getenv(var)]
-        # if missing:
-        #     print(f"Error: Missing required environment variables: {', '.join(missing)}")
-        #     sys.exit(1)
+        required_vars = ['APP_NAME', 'API_PORT', 'FRONTEND_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD']
+        missing = [var for var in required_vars if not os.getenv(var)]
+        if missing:
+            print(f"Error: Missing required environment variables: {', '.join(missing)}")
+            sys.exit(1)
 
 # Get current directory name as default app name if not in env
         default_name = Path.cwd().name.replace(' ', '-').lower()
         
+        print(f"Default app name: {default_name}")
+        print(f"Setting up configuration")
+
         # Store configuration with defaults
         self.config = {
-            'app_name': os.getenv("APP_NAME", default_name),
-            'api_port': os.getenv("API_PORT", "8000"),
-            'frontend_port': os.getenv("FRONTEND_PORT", "3000"),
-            'db_name': os.getenv("DB_NAME", f"{default_name.replace('-', '_')}_db"),
-            'db_user': os.getenv("DB_USER", f"{default_name.replace('-', '_')}_user"),
-            'db_password': os.getenv("DB_PASSWORD", "change_me_in_production"),
-            'db_host': os.getenv("DB_HOST", "localhost"),
-            'db_port': os.getenv("DB_PORT", "5432"),
+            'APP_NAME': os.getenv("APP_NAME", default_name),
+            'API_PORT': os.getenv("API_PORT", "8000"),
+            'FRONTEND_PORT': os.getenv("FRONTEND_PORT", "3000"),
+            'DATABASE': os.getenv("DATABASE", "postgres"),
+            'DB_NAME': os.getenv("DB_NAME", f"{default_name.replace('-', '_')}_db"),
+            'DB_USER': os.getenv("DB_USER", f"{default_name.replace('-', '_')}_user"),
+            'DB_PASSWORD': os.getenv("DB_PASSWORD", "change_me_in_production"),
+            'DB_HOST': os.getenv("DB_HOST", "localhost"),
+            'DB_PORT': os.getenv("DB_PORT", "5432"),
             'DATABASE_URL': os.getenv("DATABASE_URL")
         }
         
+        print(f"Configuration: {self.config}")
+        
         # Set up paths
         self.root_dir = Path.cwd()
-        self.app_dir = self.root_dir / self.config['app_name']
+        self.app_dir = self.root_dir / self.config['APP_NAME']
         self.backend_dir = self.app_dir / 'backend'
         self.frontend_dir = self.app_dir / 'frontend'
 
 
     def check_dependencies(self):
         """Verify all required system dependencies are available"""
+        
+        print(f"Checking dependencies for {self.config['APP_NAME']}")
+
         dependencies = {
-            'postgres': 'psql --version',
             'node': 'node --version',
             'npm': 'npm --version',
             'python3': 'python3 --version'
         }
         
+        print(f"DATABASE: {self.config['DATABASE']}")
+        print(f"DB_NAME: {self.config['DB_NAME']}")
+
+        # Only check for postgres if using it
+        if self.config['DATABASE'] == 'postgres':
+            dependencies['postgres'] = 'psql --version'
+    
         missing = []
         for dep, command in dependencies.items():
             try:
@@ -80,38 +101,63 @@ class FullStackBootstrap:
 
     def setup_project(self):
         """Main setup function with error handling"""
-        try:
-            print("\nStarting project setup...")
-            self.check_dependencies()
-            
-            # Create project structure
-            if self.app_dir.exists():
-                print(f"\nWarning: Project directory {self.app_dir} already exists.")
-                response = input("Do you want to remove it and start fresh? (y/N): ")
-                if response.lower() == 'y':
-                    shutil.rmtree(self.app_dir)
-                else:
-                    print("Setup aborted.")
-                    return
+        print("\nStarting project setup...")
+        
+        print(f"Checking dependencies for {self.config['APP_NAME']}")
 
-            self.create_directory_structure()
-            self.create_backend_files()
-            self.create_frontend_files()
-            self.setup_database()
-            # self.create_demo_table_model()   # Add model definition for demo_table
-            self.setup_database_migrations() # Initialize Alembic and run migration
-            self.populate_demo_data()        # Populate demo_table with demo data
-            self.create_start_script()
-            
-            print("\n✓ Setup completed successfully!")
-            print("\nTo start your application:")
-            print(f"1. cd {self.config['app_name']}")
-            print("2. python start.py start both --daemon")
-            
-        except Exception as e:
-            print(f"\nError during setup: {str(e)}")
-            print("Setup failed. Please check the error message above.")
-            sys.exit(1)
+        self.check_dependencies()
+        
+        print(f"Creating project structure for {self.config['APP_NAME']}")
+
+        # Create project structure
+        if self.app_dir.exists():
+            print(f"\nWarning: Project directory {self.app_dir} already exists.")
+            response = input("Do you want to remove it and start fresh? (y/N): ")
+            if response.lower() == 'y':
+                shutil.rmtree(self.app_dir)
+            else:
+                print("Setup aborted.")
+                return
+
+        print(f"Creating directory structure for {self.config['APP_NAME']}")
+        self.create_directory_structure()
+
+        print(f"Creating backend files for {self.config['APP_NAME']}")
+        self.create_backend_files()
+        print(f"Creating frontend files for {self.config['APP_NAME']}")
+        self.create_frontend_files()
+        print(f"Setting up database for {self.config['APP_NAME']}")
+        self.setup_database()
+        # self.create_demo_table_model()   # Add model definition for demo_table
+        print(f"Setting up database migrations for {self.config['APP_NAME']}")
+        self.setup_database_migrations() # Initialize Alembic and run migration
+        print(f"Populating demo data for {self.config['APP_NAME']}")
+        self.populate_demo_data()        # Populate demo_table with demo data
+        self.create_start_script()
+        
+        print("\n✓ Setup completed successfully!")
+        print("\nTo start your application, you have several options:")
+        print(f"\ncd {self.config['APP_NAME']}")
+        print("\nThen use one of these commands:")
+        print("\n1. Start both frontend and backend (daemon mode):")
+        print("   python start.py start both --daemon")
+        print("\n2. Start individual services:")
+        print("   • Frontend only:")
+        print("     python start.py start front")
+        print("   • Backend only:")
+        print("     python start.py start back")
+        print("\n3. Other useful commands:")
+        print("   • Stop all services:")
+        print("     python start.py stop both")
+        print("   • Restart services:")
+        print("     python start.py restart both --daemon")
+        print("\nNote: Running without --daemon will show live logs in the terminal")
+        print("      but requires keeping the terminal window open.")
+                    
+        # except Exception as e:
+        #     print(f"\nError during setup: {str(e)}")
+        #     print("Setup failed. Please check the error message above.")
+        #     sys.exit(1)
 
     def create_start_script(self):
         """Create the service controller script"""
@@ -304,13 +350,13 @@ class ProjectController:
     def create_frontend_files(self):
         """Create frontend configuration and files with updated dependencies"""
         package_json = {
-            "name": self.config['app_name'],
+            "name": self.config['APP_NAME'],
             "version": "0.1.0",
             "private": True,
             "scripts": {
-                "dev": f"next dev -p {self.config['frontend_port']}",
+                "dev": f"next dev -p {self.config['FRONTEND_PORT']}",
                 "build": "next build",
-                "start": f"next start -p {self.config['frontend_port']}",
+                "start": f"next start -p {self.config['FRONTEND_PORT']}",
                 "lint": "next lint"
             },
             "dependencies": {
@@ -396,9 +442,10 @@ if __name__ == "__main__":
     def create_backend_files(self):
         """Create backend files with main FastAPI setup and essential modules"""
 
+        print(f"Creating backend files for {self.config['APP_NAME']}")
+
         # Create the `requirements.txt` file with updated dependencies
         requirements = [
-            'psycopg2-binary==2.9.10',
             'alembic==1.12.1',
             'flake8==6.1.0',
             'black==24.3.0',
@@ -410,8 +457,18 @@ if __name__ == "__main__":
             'pydantic==2.5.1'
         ]
 
+        print(f"Adding postgres-specific requirement: {self.config['DATABASE'] == 'postgres'}")
+
+        # Add postgres-specific requirement
+        if self.config['DATABASE'] == 'postgres':
+            requirements.append('psycopg2-binary==2.9.10')
+
+        print(f"Writing requirements to {self.backend_dir / 'requirements.txt'}")
+
         with open(self.backend_dir / 'requirements.txt', 'w') as f:
             f.write('\n'.join(requirements))
+
+        print(f"Writing main FastAPI application file to {self.backend_dir / 'app' / 'main.py'}")
 
     # Main FastAPI application file
         main_app = """
@@ -423,17 +480,28 @@ from app.models.demo_table import DemoTable
 from app.crud import create_demo_table, get_demo_table, get_demo_table_by_id
 from app.schemas import DemoTable as DemoTableSchema
 from app import models, schemas
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 
-app = FastAPI(title="{app_name}")
+app = FastAPI(title="{APP_NAME}") 
 
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:{frontend_port}"],
+    allow_origins=["http://localhost:{FRONTEND_PORT}"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Middleware to add trailing slashes
+@app.middleware("http")
+async def add_trailing_slash(request: Request, call_next):
+    if not request.url.path.endswith("/"):
+        return RedirectResponse(url=str(request.url) + "/")
+    response = await call_next(request)
+    return response
 
 # Dependency to get DB session
 def get_db():
@@ -443,22 +511,26 @@ def get_db():
     finally:
         db.close()
 
-        
-# DemoTable routes
+# Define routes with different combinations
 @app.get("/demo-tables/", response_model=list[DemoTableSchema])
 @app.get("/demo_tables/", response_model=list[DemoTableSchema])
+@app.get("/demo-tables", response_model=list[DemoTableSchema])
+@app.get("/demo_tables", response_model=list[DemoTableSchema])
 async def read_demo_tables(db: Session = Depends(get_db)):
-    return db.query(models.DemoTable).all()
+    return db.query(DemoTable).all()
 
+@app.get("/demo-tables/{{demo_table_id}}/", response_model=DemoTableSchema)
+@app.get("/demo_tables/{{demo_table_id}}/", response_model=DemoTableSchema)
 @app.get("/demo-tables/{{demo_table_id}}", response_model=DemoTableSchema)
 @app.get("/demo_tables/{{demo_table_id}}", response_model=DemoTableSchema)
 async def read_demo_table(demo_table_id: int, db: Session = Depends(get_db)):
-    demo_table = db.query(models.DemoTable).filter(models.DemoTable.id == demo_table_id).first()
+    demo_table = db.query(DemoTable).filter(DemoTable.id == demo_table_id).first()
     if demo_table is None:
         raise HTTPException(status_code=404, detail="DemoTable not found")
     return demo_table
 """.format(**self.config)
 
+        print(f"Writing main FastAPI application file to {self.backend_dir / 'app' / 'main.py'}")
         with open(self.backend_dir / 'app' / 'main.py', 'w') as f:
             f.write(main_app.strip())
 
@@ -472,12 +544,23 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
 
-engine = create_engine(DATABASE_URL)
+# Get the database URL from environment variables
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database.db")
+
+# Add connect_args only for SQLite
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+
+# Create the SQLAlchemy engine
+engine = create_engine(
+    DATABASE_URL,
+    connect_args=connect_args
+)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 """
+        print(f"Writing database file to {self.backend_dir / 'app' / 'database.py'}")
 
         with open(self.backend_dir / 'app' / 'database.py', 'w') as f:
             f.write(database_file.strip())
@@ -493,6 +576,8 @@ class DemoTable(Base):
     demo_field = Column(String, nullable=False)
 """
 
+        print(f"Writing demo table model to {self.backend_dir / 'app' / 'models' / 'demo_table.py'}")
+
         with open(self.backend_dir / 'app' / 'models' / 'demo_table.py', 'w') as f:
             f.write(demo_table_model.strip())
 
@@ -501,6 +586,9 @@ class DemoTable(Base):
 from app.database import Base
 from .demo_table import DemoTable
 """
+
+        print(f"Writing models init file to {self.backend_dir / 'app' / 'models' / '__init__.py'}")
+
         with open(self.backend_dir / 'app' / 'models' / '__init__.py', 'w') as f:
             f.write(init_file.strip())
 
@@ -524,6 +612,8 @@ def get_demo_table_by_id(db: Session, demo_table_id: int):
     return db.query(DemoTable).filter(DemoTable.id == demo_table_id).first()
 """
 
+        print(f"Writing crud file to {self.backend_dir / 'app' / 'crud.py'}")
+
         with open(self.backend_dir / 'app' / 'crud.py', 'w') as f:
             f.write(crud_file.strip())
 
@@ -544,6 +634,8 @@ class DemoTable(DemoTableBase):
         orm_mode = True
 """
 
+        print(f"Writing schemas file to {self.backend_dir / 'app' / 'schemas.py'}")
+
         with open(self.backend_dir / 'app' / 'schemas.py', 'w') as f:
             f.write(schemas_file.strip())
 
@@ -551,13 +643,13 @@ class DemoTable(DemoTableBase):
     def create_frontend_files(self):
         """Create frontend configuration and files"""
         package_json = {
-            "name": self.config['app_name'],
+            "name": self.config['APP_NAME'],
             "version": "0.1.0",
             "private": True,
             "scripts": {
-                "dev": f"next dev -p {self.config['frontend_port']}",
+                "dev": f"next dev -p {self.config['FRONTEND_PORT']}",
                 "build": "next build",
-                "start": f"next start -p {self.config['frontend_port']}",
+                "start": f"next start -p {self.config['FRONTEND_PORT']}",
                 "lint": "eslint . --ext .ts,.tsx"
             },
             "dependencies": {
@@ -589,36 +681,43 @@ class DemoTable(DemoTableBase):
 
     def setup_database(self):
         """Drop and recreate PostgreSQL user and database with specified privileges"""
+        if self.config['DATABASE'] == 'sqlite':
+            # For SQLite, just ensure the directory exists
+            db_path = self.backend_dir / self.config['DB_NAME'] + '.db'
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            print("✓ SQLite database location prepared")
+            return
+        
         try:
             # Drop the database if it exists
             subprocess.run([
-                "psql", "-h", self.config['db_host'], "-p", self.config['db_port'],
+                "psql", "-h", self.config['DB_HOST'], "-p", self.config['DB_PORT'],
                 "-U", os.getenv("USER"),  # Uses the current system user
-                "-c", f"DROP DATABASE IF EXISTS {self.config['db_name']};"
+                "-c", f"DROP DATABASE IF EXISTS {self.config['DB_NAME']};"
             ], check=True)
             print("✓ Dropped existing database")
 
             # Drop the user if it exists
             subprocess.run([
-                "psql", "-h", self.config['db_host'], "-p", self.config['db_port'],
+                "psql", "-h", self.config['DB_HOST'], "-p", self.config['DB_PORT'],
                 "-U", os.getenv("USER"),
-                "-c", f"DROP ROLE IF EXISTS {self.config['db_user']};"
+                "-c", f"DROP ROLE IF EXISTS {self.config['DB_USER']};"
             ], check=True)
             print("✓ Dropped existing user")
 
             # Create the user with the specified password
             subprocess.run([
-                "psql", "-h", self.config['db_host'], "-p", self.config['db_port'],
+                "psql", "-h", self.config['DB_HOST'], "-p", self.config['DB_PORT'],
                 "-U", os.getenv("USER"),
-                "-c", f"CREATE USER {self.config['db_user']} WITH PASSWORD '{self.config['db_password']}' CREATEDB;"
+                "-c", f"CREATE USER {self.config['DB_USER']} WITH PASSWORD '{self.config['DB_PASSWORD']}' CREATEDB;"
             ], check=True)
             print("✓ Created PostgreSQL user")
 
             # Create the database owned by the new user
             subprocess.run([
-                "psql", "-h", self.config['db_host'], "-p", self.config['db_port'],
+                "psql", "-h", self.config['DB_HOST'], "-p", self.config['DB_PORT'],
                 "-U", os.getenv("USER"),
-                "-c", f"CREATE DATABASE {self.config['db_name']} OWNER {self.config['db_user']};"
+                "-c", f"CREATE DATABASE {self.config['DB_NAME']} OWNER {self.config['DB_USER']};"
             ], check=True)
             print("✓ Created PostgreSQL database")
 
@@ -638,7 +737,7 @@ class DemoTable(DemoTableBase):
 
         updated_alembic_ini = alembic_ini.replace(
             "sqlalchemy.url = driver://user:pass@localhost/dbname",
-            f"sqlalchemy.url = postgresql://{self.config['db_user']}:{self.config['db_password']}@{self.config['db_host']}:{self.config['db_port']}/{self.config['db_name']}"
+            f"sqlalchemy.url = postgresql://{self.config['DB_USER']}:{self.config['DB_PASSWORD']}@{self.config['DB_HOST']}:{self.config['DB_PORT']}/{self.config['DB_NAME']}"
         )
 
         with open(alembic_ini_path, "w") as file:
@@ -721,7 +820,7 @@ db.close()
                 "noEmit": True,
                 "esModuleInterop": True,
                 "module": "esnext",
-                "moduleResolution": "bundler",
+                "moduleResolution": "node",
                 "resolveJsonModule": True,
                 "isolatedModules": True,
                 "jsx": "preserve",
@@ -741,17 +840,16 @@ db.close()
         # Create next.config.js for Next.js custom configurations
         next_config = """
 module.exports = {
-    async redirects() {
+    async rewrites() {
+        console.log("Processing rewrites...");
         return [
             {
                 source: '/demo-tables/',
                 destination: '/demo_tables/',
-                permanent: true,
             },
             {
-                source: '/demo-tables/:id',
-                destination: '/demo_tables/:id',
-                permanent: true,
+                source: '/demo-tables/:id/',
+                destination: '/demo_tables/:id/',
             },
         ];
     },
@@ -760,6 +858,7 @@ module.exports = {
         config.cache = false;
         return config;
     },
+    trailingSlash: true,
 };
 """.strip()
 
@@ -836,7 +935,7 @@ module.exports = {
     import '../styles/globals.css';
 
     export const metadata = {{
-        title: '{self.config['app_name']}',
+        title: '{self.config['APP_NAME']}',
         description: 'Generated by Next.js',
     }}
 
@@ -868,9 +967,9 @@ import Link from 'next/link';
 export default function Home() {{
     return (
         <main className="flex min-h-screen flex-col items-center justify-center p-8 bg-blue-50">
-            <h1 className="text-4xl font-bold">{self.config['app_name']}</h1>
+            <h1 className="text-4xl font-bold">{self.config['APP_NAME']}</h1>
             <p className="text-lg mt-4">Your application is ready!</p>
-            <p className="text-lg mt-4">You can view the <Link href="/demo-tables">Demo Tables</Link> page.</p>
+            <p className="text-lg mt-4">You can view the <Link href="/demo-tables/">Demo Tables</Link> page.</p>
         </main>
     )
 }}
@@ -897,7 +996,7 @@ export default function DemoTablesPage() {{
   useEffect(() => {{
     const fetchDemoTables = async () => {{
       try {{
-        const response = await axios.get<DemoTable[]>('http://localhost:{self.config['api_port']}/demo-tables');
+        const response = await axios.get<DemoTable[]>('http://localhost:{self.config['API_PORT']}/demo-tables/');
         setDemoTables(response.data);
       }} catch (error) {{
         console.error("Error fetching demo tables:", error);
@@ -912,7 +1011,7 @@ export default function DemoTablesPage() {{
       <ul>
         {{demoTables.map((demoTable) => (
           <li key={{demoTable.id}}>
-            <Link href={{`/demo-tables/${{demoTable.id}}`}}>
+            <Link href={{`/demo-tables/${{demoTable.id}}/`}}>
               {{demoTable.demo_field}}
             </Link>
           </li>
@@ -951,7 +1050,7 @@ export default function DemoTableDetailPage() {{
     if (id) {{
       const fetchDemoTable = async () => {{
         try {{
-          const response = await axios.get<DemoTable>(`http://localhost:{self.config['api_port']}/demo-tables/${{id}}`);
+          const response = await axios.get<DemoTable>(`http://localhost:{self.config['API_PORT']}/demo-tables/${{id}}/`);
           setDemoTable(response.data);
         }} catch (error) {{
           console.error("Error fetching demo table:", error);

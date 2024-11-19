@@ -10,14 +10,20 @@ pip install fullstack-cli
 
 ## Usage
 
-Basic usage:
+Basic usage with PostgreSQL (default):
 ```bash
 fullstack my-project
 ```
 
-Custom configuration:
+Use SQLite instead:
 ```bash
-fullstack my-project --api-port 8000 --frontend-port 3000 --db-name custom_db
+fullstack my-project --database sqlite
+```
+
+
+Custom configuration (example):
+```bash
+fullstack my-project --api-port 8000 --frontend-port 3000 --db-port 5432 --db-name custom_db --database postgres
 ```
 
 ## Project Structure
@@ -26,7 +32,7 @@ The generated project includes:
 
 - FastAPI backend
 - Next.js frontend with TypeScript
-- PostgreSQL database setup
+- PostgreSQL database setup (or SQLite)
 - Development server management script
 - Environment configuration
 
@@ -34,7 +40,9 @@ The generated project includes:
 
 - Python 3.8+
 - Node.js and npm
-- PostgreSQL
+- Database (choose one):
+  - PostgreSQL installed and running locally (5432)
+  - SQLite (no installation needed)
 
 ## License
 
