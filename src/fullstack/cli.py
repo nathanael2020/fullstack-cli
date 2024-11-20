@@ -12,6 +12,7 @@ import subprocess
 import sys
 import os
 from pathlib import Path
+
 def check_venv():
     """Check if running in a virtual environment and handle accordingly"""
     venv_dir = Path('.venv')
@@ -39,6 +40,12 @@ def check_venv():
                 # Create the virtual environment
                 subprocess.run([sys.executable, '-m', 'venv', '.venv'], check=True)
                 print("\n✓ Virtual environment created")
+
+                print("\nPlease activate the virtual environment with:")
+                print("    source .venv/bin/activate")
+                print("Then run the command again.")
+                sys.exit(1)
+
             except subprocess.CalledProcessError as e:
                 print(f"Error creating virtual environment: {e}")
                 sys.exit(1)
@@ -118,7 +125,7 @@ def load_env_or_defaults(args=None):
     if env_vars['DATABASE'] == 'postgres':
         env_vars['DATABASE_URL'] = 'postgresql://' + os.getenv('DB_USER') + ':' + os.getenv('DB_PASSWORD') + '@' + os.getenv('DB_HOST') + ':' + os.getenv('DB_PORT') + '/' + os.getenv('DB_NAME')
     elif env_vars['DATABASE'] == 'sqlite':
-        env_vars['DATABASE_URL'] = 'sqlite:///' + os.getenv('DB_NAME') + '.db'
+        env_vars['DATABASE_URL'] = 'sqlite:///' + str(Path.cwd() / 'backend' / 'app' / f"{env_vars['DB_NAME']}.db")
 
     # If DB_NAME or DB_USER not set, derive from APP_NAME
     if not env_vars['DB_NAME']:
@@ -182,6 +189,7 @@ def create_env_file(env_vars=None, args=None):
         
         env_vars = {}
 
+        # Handle APP_NAME
         if args and args.name:
             env_vars['APP_NAME'] = args.name
         else:
@@ -252,8 +260,8 @@ def create_env_file(env_vars=None, args=None):
             if args and args.db_name:
                 db_path = args.db_name
             else:
-                db_path = input("SQLite database path (default: ./database.db): ") or "./database.db"
-            env_vars['DATABASE_URL'] = f"sqlite:///{db_path}"
+                db_path = input(f"SQLite database path (default: {env_vars['APP_NAME']}_db): ") or f"{env_vars['APP_NAME']}_db"
+            env_vars['DATABASE_URL'] = f"sqlite:///{Path.cwd() / env_vars['APP_NAME'] / 'backend' / 'app' / f'{db_path}.db'}"
 
     # Create .env file
     env_content = "\n".join(f"{k}={v}" for k, v in env_vars.items())
@@ -358,7 +366,8 @@ def main():
         env_vars['DB_HOST'] = args.db_host
     if args.db_port:
         env_vars['DB_PORT'] = args.db_port
-
+    if args.database:
+        env_vars['DATABASE'] = args.database
     # Write environment variables back to .env file
     if args.force:
         create_env_file(env_vars=env_vars)

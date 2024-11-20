@@ -33,8 +33,14 @@ class FullStackBootstrap:
         # Rest of the init...
         
         # Validate required env vars
-        required_vars = ['APP_NAME', 'API_PORT', 'FRONTEND_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD']
+
+        if os.getenv('DATABASE') == 'postgres':
+            required_vars = ['APP_NAME', 'API_PORT', 'FRONTEND_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST', 'DB_PORT']
+        else:
+            required_vars = ['APP_NAME', 'API_PORT', 'FRONTEND_PORT']
+
         missing = [var for var in required_vars if not os.getenv(var)]
+
         if missing:
             print(f"Error: Missing required environment variables: {', '.join(missing)}")
             sys.exit(1)
@@ -45,18 +51,19 @@ class FullStackBootstrap:
         print(f"Default app name: {default_name}")
         print(f"Setting up configuration")
 
+        APP_NAME = os.getenv("APP_NAME", default_name)
+
         # Store configuration with defaults
         self.config = {
-            'APP_NAME': os.getenv("APP_NAME", default_name),
+            'APP_NAME': APP_NAME,
             'API_PORT': os.getenv("API_PORT", "8000"),
             'FRONTEND_PORT': os.getenv("FRONTEND_PORT", "3000"),
             'DATABASE': os.getenv("DATABASE", "postgres"),
-            'DB_NAME': os.getenv("DB_NAME", f"{default_name.replace('-', '_')}_db"),
-            'DB_USER': os.getenv("DB_USER", f"{default_name.replace('-', '_')}_user"),
+            'DB_NAME': os.getenv("DB_NAME", f"{APP_NAME.replace('-', '_')}_db"),
+            'DB_USER': os.getenv("DB_USER", f"{APP_NAME.replace('-', '_')}_user"),
             'DB_PASSWORD': os.getenv("DB_PASSWORD", "change_me_in_production"),
             'DB_HOST': os.getenv("DB_HOST", "localhost"),
             'DB_PORT': os.getenv("DB_PORT", "5432"),
-            'DATABASE_URL': os.getenv("DATABASE_URL")
         }
         
         print(f"Configuration: {self.config}")
@@ -66,7 +73,13 @@ class FullStackBootstrap:
         self.app_dir = self.root_dir / self.config['APP_NAME']
         self.backend_dir = self.app_dir / 'backend'
         self.frontend_dir = self.app_dir / 'frontend'
+        self.database_dir = self.backend_dir / 'app' / self.config['DB_NAME']
 
+        if self.config['DATABASE'] == 'postgres':
+            self.database_url = f"postgresql://{self.config['DB_USER']}:{self.config['DB_PASSWORD']}@{self.config['DB_HOST']}:{self.config['DB_PORT']}/{self.config['DB_NAME']}"
+        else:
+            self.database_url = f"sqlite:///{self.database_dir / self.config['DB_NAME']}.db"
+            self.config['DATABASE_URL'] = self.database_url
 
     def check_dependencies(self):
         """Verify all required system dependencies are available"""
@@ -546,7 +559,7 @@ load_dotenv()
 
 
 # Get the database URL from environment variables
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app/database.db")
 
 # Add connect_args only for SQLite
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
@@ -683,9 +696,9 @@ class DemoTable(DemoTableBase):
         """Drop and recreate PostgreSQL user and database with specified privileges"""
         if self.config['DATABASE'] == 'sqlite':
             # For SQLite, just ensure the directory exists
-            db_path = self.backend_dir / self.config['DB_NAME'] + '.db'
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-            print("✓ SQLite database location prepared")
+            # db_path = self.backend_dir / 'app' / self.config['DB_NAME'] / '.db'
+            # db_path.parent.mkdir(parents=True, exist_ok=True)
+            # print("✓ SQLite database location prepared")
             return
         
         try:
@@ -735,14 +748,24 @@ class DemoTable(DemoTableBase):
         with open(alembic_ini_path, "r") as file:
             alembic_ini = file.read()
 
+        # Determine the correct database URL based on the database type
+        if self.config['DATABASE'] == 'postgres':
+            database_url = (
+                f"postgresql://{self.config['DB_USER']}:{self.config['DB_PASSWORD']}"
+                f"@{self.config['DB_HOST']}:{self.config['DB_PORT']}/{self.config['DB_NAME']}"
+            )
+        elif self.config['DATABASE'] == 'sqlite':
+            database_url = f"sqlite:///{self.backend_dir / 'app' / self.config['DB_NAME']}.db"
+        else:
+            raise ValueError("Unsupported database type")
+
         updated_alembic_ini = alembic_ini.replace(
             "sqlalchemy.url = driver://user:pass@localhost/dbname",
-            f"sqlalchemy.url = postgresql://{self.config['DB_USER']}:{self.config['DB_PASSWORD']}@{self.config['DB_HOST']}:{self.config['DB_PORT']}/{self.config['DB_NAME']}"
+            f"sqlalchemy.url = {database_url}"
         )
 
         with open(alembic_ini_path, "w") as file:
             file.write(updated_alembic_ini)
-
 
         # Step 3: Update `env.py` to reference the metadata from your models
         env_path = self.backend_dir / "alembic" / "env.py"
@@ -759,11 +782,10 @@ class DemoTable(DemoTableBase):
         with open(env_path, "w") as file:
             file.write(updated_env_content)
 
-
-        # Step 3: Generate the initial migration
+        # Step 4: Generate the initial migration
         subprocess.run(["alembic", "revision", "--autogenerate", "-m", "create demo_table"], cwd=self.backend_dir)
 
-        # Step 4: Apply the migration to create the `demo_table`
+        # Step 5: Apply the migration to create the `demo_table`
         subprocess.run(["alembic", "upgrade", "head"], cwd=self.backend_dir)
 
     def create_demo_table_model(self):
@@ -794,17 +816,27 @@ from app.database import SessionLocal
 from app.models.demo_table import DemoTable
 
 db = SessionLocal()
+# try:
 demo_record = DemoTable(demo_field="You're up and running!")
 db.add(demo_record)
 db.commit()
-db.close()
+print("✓ Populated demo data")
+# except Exception as e:
+#     print(f"Error populating demo data: {e}")
+#     db.rollback()
+# finally:
+# db.close()
 """
         populate_script_path = self.backend_dir / 'app' / 'populate_demo_data.py'
         with open(populate_script_path, 'w') as f:
             f.write(demo_data_script)
 
         # Run the script to insert the record
-        subprocess.run(["python", populate_script_path])
+        result = subprocess.run(["python", populate_script_path], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"Error running populate script: {result.stderr}")
+        else:
+            print(result.stdout)
 
     def create_nextjs_files(self):
         """Create basic Next.js files with additional configurations and Tailwind setup"""
