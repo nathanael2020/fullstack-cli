@@ -340,6 +340,11 @@ def main():
 
     args = parser.parse_args()
 
+    env_var_names = ["DATABASE", "DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DATABASE_URL", "APP_NAME", "API_PORT"]
+
+    for var in env_var_names:
+        os.environ.pop(var, None)
+    
     # Check virtual environment unless explicitly skipped
     if not args.skip_venv_check:
         check_venv()
