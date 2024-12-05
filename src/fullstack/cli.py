@@ -62,6 +62,7 @@ def check_venv():
         # Upgrade pip and install packages
         subprocess.run([venv_pip, 'install', '-U', 'pip'], check=True)
         subprocess.run([venv_pip, 'install', 
+                        'alembic==1.12.1',
                         'fastapi==0.104.1',
                         'uvicorn[standard]==0.24.0',
                         'gunicorn==21.0.0',

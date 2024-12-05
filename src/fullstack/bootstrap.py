@@ -181,6 +181,7 @@ import subprocess
 import argparse
 from pathlib import Path
 from dotenv import load_dotenv
+import json
 
 load_dotenv()
 
@@ -284,7 +285,7 @@ class ProjectController:
             print("Setting up frontend dependencies...")
             
             # Update npm itself first
-            subprocess.run(["npm", "install", "-g", "npm@latest"], 
+            subprocess.run(["npm", "install", "npm@latest"], 
                         check=True, 
                         capture_output=True,
                         text=True)
@@ -705,7 +706,7 @@ class DemoTable(DemoTableBase):
             # Drop the database if it exists
             subprocess.run([
                 "psql", "-h", self.config['DB_HOST'], "-p", self.config['DB_PORT'],
-                "-U", os.getenv("USER"),  # Uses the current system user
+                "-U", os.getenv("USER"), "-d", 'postgres',  # Uses the current system user
                 "-c", f"DROP DATABASE IF EXISTS {self.config['DB_NAME']};"
             ], check=True)
             print("✓ Dropped existing database")
@@ -713,7 +714,7 @@ class DemoTable(DemoTableBase):
             # Drop the user if it exists
             subprocess.run([
                 "psql", "-h", self.config['DB_HOST'], "-p", self.config['DB_PORT'],
-                "-U", os.getenv("USER"),
+                "-U", os.getenv("USER"), "-d", 'postgres',  # Uses the current system user
                 "-c", f"DROP ROLE IF EXISTS {self.config['DB_USER']};"
             ], check=True)
             print("✓ Dropped existing user")
@@ -721,7 +722,7 @@ class DemoTable(DemoTableBase):
             # Create the user with the specified password
             subprocess.run([
                 "psql", "-h", self.config['DB_HOST'], "-p", self.config['DB_PORT'],
-                "-U", os.getenv("USER"),
+                "-U", os.getenv("USER"), "-d", 'postgres',  # Uses the current system user
                 "-c", f"CREATE USER {self.config['DB_USER']} WITH PASSWORD '{self.config['DB_PASSWORD']}' CREATEDB;"
             ], check=True)
             print("✓ Created PostgreSQL user")
@@ -729,7 +730,7 @@ class DemoTable(DemoTableBase):
             # Create the database owned by the new user
             subprocess.run([
                 "psql", "-h", self.config['DB_HOST'], "-p", self.config['DB_PORT'],
-                "-U", os.getenv("USER"),
+                "-U", os.getenv("USER"), "-d", 'postgres',  # Uses the current system user
                 "-c", f"CREATE DATABASE {self.config['DB_NAME']} OWNER {self.config['DB_USER']};"
             ], check=True)
             print("✓ Created PostgreSQL database")

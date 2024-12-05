@@ -18,7 +18,16 @@ classifiers = [
 ]
 dependencies = [
     "python-dotenv>=1.0.0",
-    "subprocess.run"
+    "subprocess.run",
+    "alembic==1.12.1",
+    "flake8==6.1.0",
+    "black==24.3.0",
+    "fastapi==0.104.1",
+    "uvicorn[standard]==0.24.0",
+    "gunicorn==21.0.0",
+    "sqlalchemy==2.0.23",
+    "python-dotenv==1.0.0",
+    "pydantic==2.5.1"
 ]
 
 [project.urls]
