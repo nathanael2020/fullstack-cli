@@ -78,6 +78,19 @@ def check_venv():
 # src/fullstack/cli.py (the relevant part)
 def load_env_or_defaults(args=None):
     """Load environment variables or set defaults"""
+
+    # Clear any existing environment variables we might be using
+    env_keys = [
+        'APP_NAME', 'API_PORT', 'FRONTEND_PORT', 'DATABASE',
+        'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'DB_HOST', 'DB_PORT',
+        'DATABASE_URL'
+    ]
+    
+    # Clear existing values
+    for key in env_keys:
+        if key in os.environ:
+            del os.environ[key]
+
     # Be explicit about using current working directory
     env_path = Path.cwd() / '.env'
     if not env_path.exists():
@@ -349,39 +362,48 @@ def main():
     # Check virtual environment unless explicitly skipped
     if not args.skip_venv_check:
         check_venv()
-    
-    # Load from .env or set defaults
-    env_vars = load_env_or_defaults(args)
-    
-    # Override with any command line arguments
-    if args.name:
-        env_vars['APP_NAME'] = args.name
-    if args.api_port:
-        env_vars['API_PORT'] = args.api_port
-    if args.frontend_port:
-        env_vars['FRONTEND_PORT'] = args.frontend_port
-    if args.database:
-        env_vars['DATABASE'] = args.database
-    if args.db_name:
-        env_vars['DB_NAME'] = args.db_name
-    if args.db_user:
-        env_vars['DB_USER'] = args.db_user
-    if args.db_password:
-        env_vars['DB_PASSWORD'] = args.db_password
-    if args.db_host:
-        env_vars['DB_HOST'] = args.db_host
-    if args.db_port:
-        env_vars['DB_PORT'] = args.db_port
-    if args.database:
-        env_vars['DATABASE'] = args.database
-    # Write environment variables back to .env file
-    if args.force:
-        create_env_file(env_vars=env_vars)
-    
-    # Initialize and run the bootstrap process
+
+    env_path = Path.cwd() / '.env'
+
     try:
-        bootstrap = FullStackBootstrap()
-        bootstrap.setup_project()
+        # If .env doesn't exist AND no command line args, we'll create it through user input
+        if not env_path.exists() and not any([getattr(args, attr) for attr in vars(args) 
+                                            if attr not in ['skip_venv_check', 'force']]):
+            # This will handle the interactive creation with clean env vars
+            bootstrap = FullStackBootstrap()
+            bootstrap.setup_project()
+        else:
+            # Load from existing .env or command line args
+            env_vars = load_env_or_defaults(args)
+            
+            # Override with any command line arguments
+            if args.name:
+                env_vars['APP_NAME'] = args.name
+            if args.api_port:
+                env_vars['API_PORT'] = args.api_port
+            if args.frontend_port:
+                env_vars['FRONTEND_PORT'] = args.frontend_port
+            if args.database:
+                env_vars['DATABASE'] = args.database
+            if args.db_name:
+                env_vars['DB_NAME'] = args.db_name
+            if args.db_user:
+                env_vars['DB_USER'] = args.db_user
+            if args.db_password:
+                env_vars['DB_PASSWORD'] = args.db_password
+            if args.db_host:
+                env_vars['DB_HOST'] = args.db_host
+            if args.db_port:
+                env_vars['DB_PORT'] = args.db_port
+            if args.database:
+                env_vars['DATABASE'] = args.database
+            # Write environment variables back to .env file
+            if args.force:
+                create_env_file(env_vars=env_vars)
+                    
+            bootstrap = FullStackBootstrap()
+            bootstrap.setup_project()
+    
     except Exception as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)

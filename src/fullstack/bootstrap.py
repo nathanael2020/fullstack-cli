@@ -147,6 +147,9 @@ class FullStackBootstrap:
         print(f"Populating demo data for {self.config['APP_NAME']}")
         self.populate_demo_data()        # Populate demo_table with demo data
         self.create_start_script()
+
+        shutil.copy2(self.root_dir / '.env', self.app_dir / '.env')
+
         
         print("\n✓ Setup completed successfully!")
         print("\nTo start your application, you have several options:")
@@ -183,17 +186,21 @@ from pathlib import Path
 from dotenv import load_dotenv
 import json
 
-load_dotenv()
-
 class ProjectController:
     def __init__(self):
+
         self.project_dir = Path(__file__).resolve().parent
-        parent_dir = self.project_dir.parent  # Go up one level to where setup.py and .env are
+        env_path = self.project_dir / '.env'
+        if not env_path.exists():
+            raise FileNotFoundError(f"Environment file not found: {env_path}")
+
+        load_dotenv(env_path, override=True)
+
         self.backend_dir = self.project_dir / "backend"
         self.frontend_dir = self.project_dir  / "frontend"
         self.api_port = os.getenv("API_PORT")
         self.frontend_port = os.getenv("FRONTEND_PORT")
-        self.venv_dir = parent_dir / ".venv"
+        self.venv_dir = self.project_dir.parent / ".venv"
         self.gunicorn = self.venv_dir / "bin" / "gunicorn"
         self.uvicorn = self.venv_dir / "bin" / "uvicorn"
         self.log_file = self.project_dir / "daemon.log"
@@ -442,6 +449,10 @@ if __name__ == "__main__":
         directories = [
             self.backend_dir / 'app' / 'api',
             self.backend_dir / 'app' / 'models',
+            self.backend_dir / 'app' / 'routers',
+            self.backend_dir / 'app' / 'schemas',
+            self.backend_dir / 'app' / 'crud',
+            self.backend_dir / 'app' / 'migrations',
             self.frontend_dir / 'src' / 'app',
             self.frontend_dir / 'src' / 'app' / 'demo_tables',
             self.frontend_dir / 'src' / 'app' / 'demo_tables' / '[id]',
@@ -484,64 +495,55 @@ if __name__ == "__main__":
 
         print(f"Writing main FastAPI application file to {self.backend_dir / 'app' / 'main.py'}")
 
-    # Main FastAPI application file
+        # Main FastAPI application file
         main_app = """
-from fastapi import FastAPI, Depends, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from app.database import SessionLocal, engine
-from app.models.demo_table import DemoTable
-from app.crud import create_demo_table, get_demo_table, get_demo_table_by_id
-from app.schemas import DemoTable as DemoTableSchema
-from app import models, schemas
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from app.routers import demo_table_router
 
-app = FastAPI(title="{APP_NAME}") 
+app = FastAPI(
+    title="{APP_NAME}",
+    version="0.1.0",
+    description="API for {APP_NAME}",
+)
 
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:{FRONTEND_PORT}"],
+    allow_origins=[
+        "http://localhost:{FRONTEND_PORT}",
+        "http://{APP_NAME}.localhost:{FRONTEND_PORT}",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
 # Middleware to add trailing slashes
 @app.middleware("http")
 async def add_trailing_slash(request: Request, call_next):
+    # Don't add trailing slash to API routes
+    if request.url.path.startswith("/api"):
+        response = await call_next(request)
+        return response
+    
     if not request.url.path.endswith("/"):
         return RedirectResponse(url=str(request.url) + "/")
     response = await call_next(request)
     return response
 
-# Dependency to get DB session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# Include routers
+app.include_router(demo_table_router, prefix="/api/v1")
 
-# Define routes with different combinations
-@app.get("/demo-tables/", response_model=list[DemoTableSchema])
-@app.get("/demo_tables/", response_model=list[DemoTableSchema])
-@app.get("/demo-tables", response_model=list[DemoTableSchema])
-@app.get("/demo_tables", response_model=list[DemoTableSchema])
-async def read_demo_tables(db: Session = Depends(get_db)):
-    return db.query(DemoTable).all()
-
-@app.get("/demo-tables/{{demo_table_id}}/", response_model=DemoTableSchema)
-@app.get("/demo_tables/{{demo_table_id}}/", response_model=DemoTableSchema)
-@app.get("/demo-tables/{{demo_table_id}}", response_model=DemoTableSchema)
-@app.get("/demo_tables/{{demo_table_id}}", response_model=DemoTableSchema)
-async def read_demo_table(demo_table_id: int, db: Session = Depends(get_db)):
-    demo_table = db.query(DemoTable).filter(DemoTable.id == demo_table_id).first()
-    if demo_table is None:
-        raise HTTPException(status_code=404, detail="DemoTable not found")
-    return demo_table
+@app.get("/")
+async def root():
+    return {{
+        "app": "{APP_NAME}",
+        "version": "0.1.0",
+        "docs_url": "/docs",
+        "openapi_url": "/openapi.json"
+    }}
 """.format(**self.config)
 
         print(f"Writing main FastAPI application file to {self.backend_dir / 'app' / 'main.py'}")
@@ -573,13 +575,20 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 """
         print(f"Writing database file to {self.backend_dir / 'app' / 'database.py'}")
 
         with open(self.backend_dir / 'app' / 'database.py', 'w') as f:
             f.write(database_file.strip())
 
-        # `models.py` for defining the PDF model
+        # `models.py` for defining the model
         demo_table_model = """
 from sqlalchemy import Column, Integer, String
 from app.database import Base
@@ -606,21 +615,53 @@ from .demo_table import DemoTable
         with open(self.backend_dir / 'app' / 'models' / '__init__.py', 'w') as f:
             f.write(init_file.strip())
 
-        # `crud.py` for database operations
-        crud_file = """
+
+        # `__init__.py` for schemas module
+        init_file = """
+from .demo_table import DemoTableCreate, DemoTableSchema
+"""
+
+        print(f"Writing schemas init file to {self.backend_dir / 'app' / 'schemas' / '__init__.py'}")
+
+        with open(self.backend_dir / 'app' / 'schemas' / '__init__.py', 'w') as f:
+            f.write(init_file.strip())
+
+
+
+        # `__init__.py` for routers module
+        init_file = """
+from .demo_table import router as demo_table_router
+"""
+
+        print(f"Writing routers init file to {self.backend_dir / 'app' / 'routers' / '__init__.py'}")
+
+        with open(self.backend_dir / 'app' / 'routers' / '__init__.py', 'w') as f:
+            f.write(init_file.strip())
+
+        # `__init__.py` for crud module
+        init_file = """
+"""
+
+        print(f"Writing crud init file to {self.backend_dir / 'app' / 'crud' / '__init__.py'}")
+
+        with open(self.backend_dir / 'app' / 'crud' / '__init__.py', 'w') as f:
+            f.write(init_file.strip())
+
+        # `demo_table.py` for crud operations
+        demo_table_file = """
 from sqlalchemy.orm import Session
-from . import models, schemas
+from app.schemas.demo_table import DemoTableCreate
 from app.models.demo_table import DemoTable
 
-def create_demo_table(db: Session, demo_table: schemas.DemoTableCreate):
+def create_demo_table(db: Session, demo_table: DemoTableCreate):
     db_demo_table = DemoTable(demo_field=demo_table.demo_field)
     db.add(db_demo_table)
     db.commit()
     db.refresh(db_demo_table)
     return db_demo_table
 
-def get_demo_table(db: Session):
-    return db.query(DemoTable).all()
+def get_demo_table(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(DemoTable).offset(skip).limit(limit).all()
 
 def get_demo_table_by_id(db: Session, demo_table_id: int):
     return db.query(DemoTable).filter(DemoTable.id == demo_table_id).first()
@@ -628,10 +669,46 @@ def get_demo_table_by_id(db: Session, demo_table_id: int):
 
         print(f"Writing crud file to {self.backend_dir / 'app' / 'crud.py'}")
 
-        with open(self.backend_dir / 'app' / 'crud.py', 'w') as f:
-            f.write(crud_file.strip())
+        with open(self.backend_dir / 'app' / 'crud' / 'demo_table.py', 'w') as f:
+            f.write(demo_table_file.strip())
 
-        # `schemas.py` for Pydantic models
+
+        # `demo_table.py` for crud operations
+        demo_table_file = """
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+from app.database import get_db
+from app.crud.demo_table import create_demo_table, get_demo_table, get_demo_table_by_id
+from app.schemas.demo_table import DemoTableSchema, DemoTableCreate
+
+router = APIRouter(
+    prefix="/demo-tables",
+    tags=["demo_tables"]
+)
+
+@router.get("/", response_model=List[DemoTableSchema])
+async def read_demo_tables(db: Session = Depends(get_db)):
+    return get_demo_table(db)
+
+@router.get("/{demo_table_id}/", response_model=DemoTableSchema)
+async def read_demo_table(demo_table_id: int, db: Session = Depends(get_db)):
+    db_demo_table = get_demo_table_by_id(db, demo_table_id)
+    if db_demo_table is None:
+        raise HTTPException(status_code=404, detail="DemoTable not found")
+    return db_demo_table
+
+@router.post("/", response_model=DemoTableSchema)
+async def create_new_demo_table(demo_table: DemoTableCreate, db: Session = Depends(get_db)):
+    return create_demo_table(db=db, demo_table=demo_table)
+"""
+
+        print(f"Writing routers file to {self.backend_dir / 'app' / 'routers' / 'demo_table.py'}")
+
+        with open(self.backend_dir / 'app' / 'routers' / 'demo_table.py', 'w') as f:
+            f.write(demo_table_file.strip())
+
+        # `demo_table.py` for Schemas module
         schemas_file = """
 from pydantic import BaseModel
 
@@ -641,16 +718,16 @@ class DemoTableBase(BaseModel):
 class DemoTableCreate(DemoTableBase):
     pass
 
-class DemoTable(DemoTableBase):
+class DemoTableSchema(DemoTableBase):
     id: int
 
     class Config:
         orm_mode = True
 """
 
-        print(f"Writing schemas file to {self.backend_dir / 'app' / 'schemas.py'}")
+        print(f"Writing schemas file to {self.backend_dir / 'app' / 'schemas' / 'demo_table.py'}")
 
-        with open(self.backend_dir / 'app' / 'schemas.py', 'w') as f:
+        with open(self.backend_dir / 'app' / 'schemas' / 'demo_table.py', 'w') as f:
             f.write(schemas_file.strip())
 
 
@@ -881,8 +958,8 @@ module.exports = {
                 destination: '/demo_tables/',
             },
             {
-                source: '/demo-tables/:id/',
-                destination: '/demo_tables/:id/',
+                source: '/demo-tables/:path*',
+                destination: '/demo_tables/:path*',
             },
         ];
     },
@@ -1029,7 +1106,7 @@ export default function DemoTablesPage() {{
   useEffect(() => {{
     const fetchDemoTables = async () => {{
       try {{
-        const response = await axios.get<DemoTable[]>('http://localhost:{self.config['API_PORT']}/demo-tables/');
+        const response = await axios.get<DemoTable[]>('http://localhost:{self.config['API_PORT']}/api/v1/demo-tables/');
         setDemoTables(response.data);
       }} catch (error) {{
         console.error("Error fetching demo tables:", error);
@@ -1083,7 +1160,7 @@ export default function DemoTableDetailPage() {{
     if (id) {{
       const fetchDemoTable = async () => {{
         try {{
-          const response = await axios.get<DemoTable>(`http://localhost:{self.config['API_PORT']}/demo-tables/${{id}}/`);
+          const response = await axios.get<DemoTable>(`http://localhost:{self.config['API_PORT']}/api/v1/demo-tables/${{id}}/`);
           setDemoTable(response.data);
         }} catch (error) {{
           console.error("Error fetching demo table:", error);
