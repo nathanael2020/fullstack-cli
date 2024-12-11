@@ -194,13 +194,21 @@ class ProjectController:
         if not env_path.exists():
             raise FileNotFoundError(f"Environment file not found: {env_path}")
 
+
+        # Load the project's environment variables
         load_dotenv(env_path, override=True)
 
         self.backend_dir = self.project_dir / "backend"
         self.frontend_dir = self.project_dir  / "frontend"
+
         self.api_port = os.getenv("API_PORT")
         self.frontend_port = os.getenv("FRONTEND_PORT")
-        self.venv_dir = self.project_dir.parent / ".venv"
+
+        # Use the parent virtual environment if it exists, otherwise look for local one
+        parent_venv = Path(os.environ.get('VIRTUAL_ENV', '')).resolve()
+        local_venv = self.project_dir.parent / ".venv"
+        self.venv_dir = parent_venv if parent_venv.exists() else local_venv
+        
         self.gunicorn = self.venv_dir / "bin" / "gunicorn"
         self.uvicorn = self.venv_dir / "bin" / "uvicorn"
         self.log_file = self.project_dir / "daemon.log"
@@ -496,24 +504,34 @@ if __name__ == "__main__":
         print(f"Writing main FastAPI application file to {self.backend_dir / 'app' / 'main.py'}")
 
         # Main FastAPI application file
-        main_app = """
+        main_app = f"""
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from app.routers import demo_table_router
+import os
+from dotenv import load_dotenv
+
+
+# Load environment variables from the project's .env
+load_dotenv()
 
 app = FastAPI(
-    title="{APP_NAME}",
+    title="{self.config['APP_NAME']}",
     version="0.1.0",
-    description="API for {APP_NAME}",
+    description="API for {self.config['APP_NAME']}",
 )
 
-# CORS configuration
+# Get ports from environment
+FRONTEND_PORT = os.getenv('FRONTEND_PORT', '3000')
+API_PORT = os.getenv('API_PORT', '8000')
+
+# CORS configuration with dynamic ports
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:{FRONTEND_PORT}",
-        "http://{APP_NAME}.localhost:{FRONTEND_PORT}",
+        f"http://localhost:{{FRONTEND_PORT}}",
+        f"http://{self.config['APP_NAME']}.localhost:{{FRONTEND_PORT}}",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -539,12 +557,12 @@ app.include_router(demo_table_router, prefix="/api/v1")
 @app.get("/")
 async def root():
     return {{
-        "app": "{APP_NAME}",
+        "app": "{self.config['APP_NAME']}",
         "version": "0.1.0",
         "docs_url": "/docs",
         "openapi_url": "/openapi.json"
     }}
-""".format(**self.config)
+"""
 
         print(f"Writing main FastAPI application file to {self.backend_dir / 'app' / 'main.py'}")
         with open(self.backend_dir / 'app' / 'main.py', 'w') as f:
@@ -559,7 +577,6 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-
 
 # Get the database URL from environment variables
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app/database.db")
@@ -625,8 +642,6 @@ from .demo_table import DemoTableCreate, DemoTableSchema
 
         with open(self.backend_dir / 'app' / 'schemas' / '__init__.py', 'w') as f:
             f.write(init_file.strip())
-
-
 
         # `__init__.py` for routers module
         init_file = """
@@ -1095,6 +1110,9 @@ import {{ useEffect, useState }} from 'react';
 import Link from 'next/link';
 import axios from 'axios';
 
+// Get API port from environment
+const API_PORT = process.env.NEXT_PUBLIC_API_PORT || '{self.config["API_PORT"]}';
+
 type DemoTable = {{
   id: number;
   demo_field: string;
@@ -1106,7 +1124,7 @@ export default function DemoTablesPage() {{
   useEffect(() => {{
     const fetchDemoTables = async () => {{
       try {{
-        const response = await axios.get<DemoTable[]>('http://localhost:{self.config['API_PORT']}/api/v1/demo-tables/');
+        const response = await axios.get<DemoTable[]>(`http://localhost:${{API_PORT}}/api/v1/demo-tables/`);
         setDemoTables(response.data);
       }} catch (error) {{
         console.error("Error fetching demo tables:", error);
@@ -1143,6 +1161,9 @@ import {{ useParams }} from 'next/navigation';
 import {{ useEffect, useState }} from 'react';
 import axios from 'axios';
 
+// Get API port from environment
+const API_PORT = process.env.NEXT_PUBLIC_API_PORT || '{self.config["API_PORT"]}';
+
 type DemoTable = {{
   id: number;
   demo_field: string;
@@ -1156,29 +1177,29 @@ export default function DemoTableDetailPage() {{
     const id = params.id as string;
     const [demoTable, setDemoTable] = useState<DemoTable | null>(null);
 
-  useEffect(() => {{
-    if (id) {{
-      const fetchDemoTable = async () => {{
-        try {{
-          const response = await axios.get<DemoTable>(`http://localhost:{self.config['API_PORT']}/api/v1/demo-tables/${{id}}/`);
-          setDemoTable(response.data);
-        }} catch (error) {{
-          console.error("Error fetching demo table:", error);
+    useEffect(() => {{
+        if (id) {{
+        const fetchDemoTable = async () => {{
+            try {{
+            const response = await axios.get<DemoTable>(`http://localhost:${{API_PORT}}/api/v1/demo-tables/${{id}}/`);
+            setDemoTable(response.data);
+            }} catch (error) {{
+            console.error("Error fetching demo table:", error);
+            }}
+        }};
+        fetchDemoTable();
         }}
-      }};
-      fetchDemoTable();
-    }}
-  }}, [id]);
+    }}, [id]);
 
-  if (!demoTable) return <p>Loading...</p>;
+    if (!demoTable) return <p>Loading...</p>;
 
-  return (
-    <main className="p-8">
-      <h1 className="text-2xl font-bold mb-4">Demo Table Detail</h1>
-      <p>ID: {{demoTable.id}}</p>
-      <p>Field: {{demoTable.demo_field}}</p>
-    </main>
-  );
+    return (
+        <main className="p-8">
+        <h1 className="text-2xl font-bold mb-4">Demo Table Detail</h1>
+        <p>ID: {{demoTable.id}}</p>
+        <p>Field: {{demoTable.demo_field}}</p>
+        </main>
+    );
 }}
 """.strip()
 

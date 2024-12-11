@@ -15,10 +15,11 @@ from pathlib import Path
 
 def check_venv():
     """Check if running in a virtual environment and handle accordingly"""
-    venv_dir = Path('.venv')
+    # Use current directory for new venv creation
+    local_venv_dir = Path.cwd() / '.venv'
 
     if not os.environ.get('VIRTUAL_ENV'):
-        if venv_dir.exists():
+        if local_venv_dir.exists():
             print("\nFound existing .venv directory but it's not activated.")
             print("Please activate it with:")
             print("    source .venv/bin/activate")
@@ -55,7 +56,10 @@ def check_venv():
 
     # At this point, the virtual environment should be active
     print("Virtual environment is active.")
-    venv_pip = str(venv_dir / 'bin' / 'pip')
+    # Use the actual active virtual environment path
+    active_venv_path = Path(os.environ['VIRTUAL_ENV'])
+    venv_pip = str(active_venv_path / 'bin' / 'pip')
+    print(f"Using pip from: {venv_pip}")
     print("Installing required packages...")
     
     try:
